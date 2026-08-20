@@ -54,11 +54,24 @@ dispositivo de quien la usa.
 
 ## Instalar la app en el móvil/tablet
 
-Una vez publicada en Render, abre la URL en Chrome (Android) o Safari
-(iOS) y usa "Instalar app" / "Añadir a pantalla de inicio". Quedará como
-una app independiente, con su propio icono, y el tablero funcionará sin
+**Android (Chrome):** abre la URL, menú (⋮) → "Instalar app" (o aparecerá un
+aviso automático).
+
+**iOS (iPhone/iPad, Safari):** iOS no ofrece instalación automática — hay
+que hacerlo a mano: toca el icono de **Compartir** (la flecha hacia arriba)
+y luego **"Añadir a pantalla de inicio"**. La propia app se lo recuerda
+con un aviso la primera vez que se abre desde Safari.
+
+Una vez instalada en cualquiera de los dos, queda como app independiente
+con su propio icono, sin barra de navegador, y el tablero funciona sin
 conexión (la voz del sistema funciona offline; la voz clonada de
 ElevenLabs siempre necesita internet).
+
+**Aviso importante sobre iOS:** Safari puede borrar los datos guardados
+(iconos personalizados, ajustes) si la app pasa muchos días sin abrirse,
+por una política de privacidad de Apple (ITP). Para evitar perder el
+trabajo, usa de vez en cuando "Exportar" en Ajustes → Copia de seguridad
+y guarda ese archivo en un sitio seguro (Google Drive, email, etc.).
 
 ## Notas
 
