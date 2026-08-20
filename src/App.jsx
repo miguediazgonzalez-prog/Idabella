@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings, X, Plus, Volume2, Trash2, Type, ChevronDown, ChevronUp, Loader2, Sparkles, Mic, Download } from 'lucide-react';
+import {
+  Settings, X, Plus, Volume2, Trash2, Type, ChevronDown, ChevronUp,
+  Loader2, Sparkles, Mic, Download, Upload, Search, Star, RotateCcw,
+} from 'lucide-react';
 
 const CATEGORIES = {
   social:    { label: 'Social',     bg: '#F6C9DE', text: '#5B2140' },
@@ -78,14 +81,28 @@ const DEFAULT_BOARD = [
 const DEFAULT_VOICE_SETTINGS = { voiceURI: '', rate: 1, pitch: 1, volume: 1 };
 const DEFAULT_AI_SETTINGS = { enabled: false, apiKey: '', voiceId: '' };
 const EMOJI_CHOICES = ['⭐','❤️','🎵','🎮','📺','🐶','🐱','🚗','⚽','🎨','📖','☀️','🌙','🍕','🛏️','📱','🔊','😀','😢','😡','🥶','🥵','🤒','👋','👍','👎'];
+const RECENT_LIMIT = 8;
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+// Works both inside the Claude artifact preview (window.storage) and in a
+// real deployed build (localStorage) — same file, no changes needed.
+async function storageGet(key) {
+  try {
+    if (window.storage && typeof window.storage.get === 'function') {
+      const r = await window.storage.get(key, false);
+      return r ? r.value : null;
+    }
+  } catch (e) {}
+  try { return localStorage.getItem(key); } catch (e) {}
+  return null;
+}
+async function storageSet(key, value) {
+  try {
+    if (window.storage && typeof window.storage.set === 'function') {
+      await window.storage.set(key, value, false);
+      return;
+    }
+  } catch (e) {}
+  try { localStorage.setItem(key, value); } catch (e) {}
 }
 
 function stripEmojiForSpeech(text) {
@@ -107,6 +124,11 @@ export default function App() {
   const [aiError, setAiError] = useState('');
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [lastAudio, setLastAudio] = useState(null);
+  const [lastSpokenText, setLastSpokenText] = useState('');
+  const [favoriteIds, setFavoriteIds] = useState([]);
+  const [recentIds, setRecentIds] = useState([]);
+  const [activeTab, setActiveTab] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showFreeText, setShowFreeText] = useState(false);
@@ -118,27 +140,37 @@ export default function App() {
   const [newEmoji, setNewEmoji] = useState('⭐');
   const [newCategory, setNewCategory] = useState('cosas');
   const [editMode, setEditMode] = useState(false);
+  const [backupMessage, setBackupMessage] = useState('');
   const audioRef = useRef(null);
   const lastAudioUrlRef = useRef(null);
   const strapRef = useRef(null);
+  const importInputRef = useRef(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const items = await window.storage.get('custom-items', false);
-        if (items) setCustomItems(JSON.parse(items.value));
+        const items = await storageGet('custom-items');
+        if (items) setCustomItems(JSON.parse(items));
       } catch (e) {}
       try {
-        const vs = await window.storage.get('voice-settings', false);
-        if (vs) setVoiceSettings(JSON.parse(vs.value));
+        const vs = await storageGet('voice-settings');
+        if (vs) setVoiceSettings(JSON.parse(vs));
       } catch (e) {}
       try {
-        const ai = await window.storage.get('ai-voice-settings', false);
+        const ai = await storageGet('ai-voice-settings');
         if (ai) {
-          const parsed = JSON.parse(ai.value);
+          const parsed = JSON.parse(ai);
           setAiSettings(parsed);
           if (parsed.apiKey) fetchAiVoices(parsed.apiKey);
         }
+      } catch (e) {}
+      try {
+        const fav = await storageGet('favorite-ids');
+        if (fav) setFavoriteIds(JSON.parse(fav));
+      } catch (e) {}
+      try {
+        const rec = await storageGet('recent-ids');
+        if (rec) setRecentIds(JSON.parse(rec));
       } catch (e) {}
     })();
     // eslint-disable-next-line
@@ -153,15 +185,11 @@ export default function App() {
     window.speechSynthesis.onvoiceschanged = loadVoices;
   }, []);
 
-  const persistCustomItems = useCallback(async (items) => {
-    try { await window.storage.set('custom-items', JSON.stringify(items), false); } catch (e) {}
-  }, []);
-  const persistVoiceSettings = useCallback(async (settings) => {
-    try { await window.storage.set('voice-settings', JSON.stringify(settings), false); } catch (e) {}
-  }, []);
-  const persistAiSettings = useCallback(async (settings) => {
-    try { await window.storage.set('ai-voice-settings', JSON.stringify(settings), false); } catch (e) {}
-  }, []);
+  const persistCustomItems = useCallback((items) => { storageSet('custom-items', JSON.stringify(items)); }, []);
+  const persistVoiceSettings = useCallback((settings) => { storageSet('voice-settings', JSON.stringify(settings)); }, []);
+  const persistAiSettings = useCallback((settings) => { storageSet('ai-voice-settings', JSON.stringify(settings)); }, []);
+  const persistFavorites = useCallback((ids) => { storageSet('favorite-ids', JSON.stringify(ids)); }, []);
+  const persistRecent = useCallback((ids) => { storageSet('recent-ids', JSON.stringify(ids)); }, []);
 
   const fetchAiVoices = async (apiKey) => {
     if (!apiKey) return;
@@ -266,7 +294,6 @@ export default function App() {
       setAiError(e.message === 'Failed to fetch'
         ? 'No se pudo conectar. Revisa tu conexión a internet.'
         : e.message);
-      // fall back to system voice so the person can still be heard
       speakSystem(text);
     } finally {
       setAiSpeaking(false);
@@ -277,6 +304,7 @@ export default function App() {
     if (!text || !text.trim()) return;
     const cleaned = stripEmojiForSpeech(text);
     if (!cleaned) return;
+    setLastSpokenText(cleaned);
     if (aiSettings.enabled && aiSettings.apiKey && aiSettings.voiceId) {
       speakAi(cleaned);
     } else {
@@ -284,14 +312,44 @@ export default function App() {
     }
   };
 
+  const repeatLast = () => {
+    if (!lastSpokenText) return;
+    if (aiSettings.enabled && lastAudio && lastAudio.text === lastSpokenText && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play();
+    } else {
+      speak(lastSpokenText);
+    }
+  };
+
   const addToSentence = (item) => {
     setSentence(prev => [...prev, { ...item, uid: `${item.id}-${Date.now()}-${Math.random()}` }]);
   };
   const removeFromSentence = (uid) => setSentence(prev => prev.filter(s => s.uid !== uid));
+
+  const addToRecent = (id) => {
+    setRecentIds(prev => {
+      const updated = [id, ...prev.filter(x => x !== id)].slice(0, RECENT_LIMIT);
+      persistRecent(updated);
+      return updated;
+    });
+  };
+
+  const toggleFavorite = (id, e) => {
+    e.stopPropagation();
+    setFavoriteIds(prev => {
+      const updated = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      persistFavorites(updated);
+      return updated;
+    });
+  };
+
   const handleTapItem = (item) => {
     addToSentence(item);
     speak(item.label);
+    addToRecent(item.id);
   };
+
   const downloadLastAudio = () => {
     if (!lastAudio) return;
     const safe = lastAudio.text
@@ -307,6 +365,7 @@ export default function App() {
     a.click();
     document.body.removeChild(a);
   };
+
   const speakSentence = () => speak(sentence.map(s => s.label).join(' '));
   const clearSentence = () => setSentence([]);
   const speakFreeText = () => speak(freeText);
@@ -334,10 +393,77 @@ export default function App() {
     persistVoiceSettings(updated);
   };
 
+  const exportBackup = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      customItems,
+      voiceSettings,
+      aiSettings,
+      favoriteIds,
+      recentIds,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tablero-de-voz-copia-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setBackupMessage('Copia exportada.');
+  };
+
+  const importBackup = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (Array.isArray(data.customItems)) {
+          setCustomItems(data.customItems);
+          persistCustomItems(data.customItems);
+        }
+        if (data.voiceSettings) {
+          setVoiceSettings(data.voiceSettings);
+          persistVoiceSettings(data.voiceSettings);
+        }
+        if (data.aiSettings) {
+          setAiSettings(data.aiSettings);
+          persistAiSettings(data.aiSettings);
+          if (data.aiSettings.apiKey) fetchAiVoices(data.aiSettings.apiKey);
+        }
+        if (Array.isArray(data.favoriteIds)) {
+          setFavoriteIds(data.favoriteIds);
+          persistFavorites(data.favoriteIds);
+        }
+        if (Array.isArray(data.recentIds)) {
+          setRecentIds(data.recentIds);
+          persistRecent(data.recentIds);
+        }
+        setBackupMessage('Copia restaurada correctamente.');
+      } catch (e) {
+        setBackupMessage('El archivo no es una copia válida.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const allItems = [...DEFAULT_BOARD, ...customItems];
+  const itemById = (id) => allItems.find(i => i.id === id);
+  const favoriteItems = favoriteIds.map(itemById).filter(Boolean);
+  const recentItems = recentIds.map(itemById).filter(Boolean);
   const spanishVoices = voices.filter(v => v.lang.toLowerCase().startsWith('es'));
   const otherVoices = voices.filter(v => !v.lang.toLowerCase().startsWith('es'));
   const speaking = aiSpeaking;
+
+  const q = searchQuery.trim().toLowerCase();
+  const visibleItems = allItems.filter(item => {
+    if (q) return item.label.toLowerCase().includes(q);
+    return activeTab === 'all' || item.category === activeTab;
+  });
+  const tabs = [{ key: 'all', label: 'Todos', bg: '#EDE7DA', text: '#4A4436' },
+    ...Object.entries(CATEGORIES).map(([key, c]) => ({ key, ...c }))];
 
   return (
     <div className="min-h-screen w-full" style={{ background: '#FBF7F0', fontFamily: 'ui-rounded, "Nunito", system-ui, sans-serif' }}>
@@ -380,6 +506,46 @@ export default function App() {
           </div>
         )}
 
+        {/* Favorites row */}
+        {favoriteItems.length > 0 && (
+          <div className="mb-2">
+            <p className="text-xs font-bold mb-1 px-1" style={{ color: '#6B6255' }}>⭐ Favoritos</p>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {favoriteItems.map(item => (
+                <button
+                  key={`fav-${item.id}`}
+                  onClick={() => handleTapItem(item)}
+                  disabled={aiSpeaking}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl shrink-0 font-bold text-sm disabled:opacity-60"
+                  style={{ background: CATEGORIES[item.category].bg, color: CATEGORIES[item.category].text }}
+                >
+                  <span className="text-lg">{item.emoji}</span>{item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent row */}
+        {recentItems.length > 0 && (
+          <div className="mb-3">
+            <p className="text-xs font-bold mb-1 px-1" style={{ color: '#6B6255' }}>🕐 Recientes</p>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {recentItems.map(item => (
+                <button
+                  key={`rec-${item.id}`}
+                  onClick={() => handleTapItem(item)}
+                  disabled={aiSpeaking}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl shrink-0 font-bold text-sm disabled:opacity-60"
+                  style={{ background: CATEGORIES[item.category].bg, color: CATEGORIES[item.category].text }}
+                >
+                  <span className="text-lg">{item.emoji}</span>{item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Sentence strip */}
         <div className="rounded-2xl p-3 mb-3" style={{ background: 'white', border: '2px solid #D8CFC0' }}>
           <div ref={strapRef} className="flex gap-2 overflow-x-auto pb-1" style={{ minHeight: '56px' }} role="list" aria-label="Frase actual">
@@ -410,6 +576,15 @@ export default function App() {
               style={{ background: '#1B7A6E', color: 'white' }}
             >
               {speaking ? <Loader2 size={22} className="animate-spin" /> : <Volume2 size={22} />} Hablar
+            </button>
+            <button
+              onClick={repeatLast}
+              disabled={!lastSpokenText || speaking}
+              className="px-4 py-3 rounded-xl font-bold disabled:opacity-40"
+              style={{ background: '#F3EEE4', color: '#1B7A6E' }}
+              aria-label="Repetir última frase"
+            >
+              <RotateCcw size={20} />
             </button>
             <button
               onClick={clearSentence}
@@ -472,9 +647,45 @@ export default function App() {
           )}
         </div>
 
+        {/* Search */}
+        <div className="relative mb-3">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2" color="#9A9186" />
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Buscar icono…"
+            className="w-full pl-10 pr-3 py-2.5 rounded-xl text-base"
+            style={{ border: '2px solid #D8CFC0', background: 'white' }}
+          />
+        </div>
+
+        {/* Category tabs */}
+        {!q && (
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-2">
+            {tabs.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className="px-3 py-1.5 rounded-full text-sm font-bold shrink-0"
+                style={{
+                  background: activeTab === tab.key ? '#1B7A6E' : tab.bg,
+                  color: activeTab === tab.key ? 'white' : tab.text,
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Board grid */}
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-          {allItems.map(item => (
+          {visibleItems.length === 0 && (
+            <p className="col-span-full text-sm text-center py-4" style={{ color: '#9A9186' }}>
+              No se encontraron iconos con ese término.
+            </p>
+          )}
+          {visibleItems.map(item => (
             <div key={item.id} className="relative">
               <button
                 onClick={() => handleTapItem(item)}
@@ -485,6 +696,16 @@ export default function App() {
                 <span className="text-3xl">{item.emoji}</span>
                 <span className="text-sm leading-tight text-center px-1">{item.label}</span>
               </button>
+              {editMode && (
+                <button
+                  onClick={(e) => toggleFavorite(item.id, e)}
+                  aria-label={favoriteIds.includes(item.id) ? `Quitar ${item.label} de favoritos` : `Añadir ${item.label} a favoritos`}
+                  className="absolute -top-2 -left-2 rounded-full p-1"
+                  style={{ background: favoriteIds.includes(item.id) ? '#F5B301' : '#D8CFC0', color: 'white' }}
+                >
+                  <Star size={14} fill="white" />
+                </button>
+              )}
               {editMode && item.custom && (
                 <button
                   onClick={() => deleteCustomItem(item.id)}
@@ -499,7 +720,7 @@ export default function App() {
           ))}
 
           <button
-            onClick={() => setShowAdd(true)}
+            onClick={() => { setNewCategory(activeTab !== 'all' ? activeTab : 'cosas'); setShowAdd(true); }}
             className="w-full flex flex-col items-center justify-center gap-1 py-3 rounded-2xl font-bold border-2 border-dashed"
             style={{ borderColor: '#B7AE9E', color: '#6B6255', minHeight: '84px' }}
           >
@@ -752,13 +973,47 @@ export default function App() {
                 <button
                   onClick={() => speak('Hola, así sueno ahora mismo.')}
                   disabled={!aiSettings.voiceId || aiSpeaking}
-                  className="w-full py-3 rounded-xl font-extrabold flex items-center justify-center gap-2 disabled:opacity-40"
+                  className="w-full py-3 rounded-xl font-extrabold flex items-center justify-center gap-2 disabled:opacity-40 mb-4"
                   style={{ background: '#1B7A6E', color: 'white' }}
                 >
                   {aiSpeaking ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />} Probar voz
                 </button>
               </>
             )}
+
+            {/* Backup section */}
+            <div className="pt-3 mt-1 border-t-2" style={{ borderColor: '#D8CFC0' }}>
+              <label className="block text-sm font-bold mb-2" style={{ color: '#6B6255' }}>Copia de seguridad</label>
+              <div className="flex gap-2 mb-2">
+                <button
+                  onClick={exportBackup}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 border-2"
+                  style={{ borderColor: '#1B7A6E', color: '#1B7A6E', background: 'white' }}
+                >
+                  <Download size={16} /> Exportar
+                </button>
+                <button
+                  onClick={() => importInputRef.current && importInputRef.current.click()}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 border-2"
+                  style={{ borderColor: '#1B7A6E', color: '#1B7A6E', background: 'white' }}
+                >
+                  <Upload size={16} /> Importar
+                </button>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept="application/json"
+                  className="hidden"
+                  onChange={e => { importBackup(e.target.files[0]); e.target.value = ''; }}
+                />
+              </div>
+              <p className="text-xs" style={{ color: '#9A9186' }}>
+                Guarda tus iconos, favoritos y ajustes en un archivo, o restáuralos en otro dispositivo. El archivo puede incluir tu clave de ElevenLabs — guárdalo en un sitio privado.
+              </p>
+              {backupMessage && (
+                <p className="text-xs mt-2 font-bold" style={{ color: '#1B7A6E' }}>{backupMessage}</p>
+              )}
+            </div>
           </div>
         </div>
       )}
