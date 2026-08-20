@@ -112,6 +112,14 @@ function stripEmojiForSpeech(text) {
     .trim();
 }
 
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+function isRunningStandalone() {
+  return window.navigator.standalone === true
+    || window.matchMedia('(display-mode: standalone)').matches;
+}
+
 export default function App() {
   const [customItems, setCustomItems] = useState([]);
   const [sentence, setSentence] = useState([]);
@@ -141,6 +149,7 @@ export default function App() {
   const [newCategory, setNewCategory] = useState('cosas');
   const [editMode, setEditMode] = useState(false);
   const [backupMessage, setBackupMessage] = useState('');
+  const [showIosHint, setShowIosHint] = useState(false);
   const audioRef = useRef(null);
   const lastAudioUrlRef = useRef(null);
   const strapRef = useRef(null);
@@ -172,6 +181,10 @@ export default function App() {
         const rec = await storageGet('recent-ids');
         if (rec) setRecentIds(JSON.parse(rec));
       } catch (e) {}
+      try {
+        const dismissed = await storageGet('ios-hint-dismissed');
+        if (!dismissed && isIosDevice() && !isRunningStandalone()) setShowIosHint(true);
+      } catch (e) {}
     })();
     // eslint-disable-next-line
   }, []);
@@ -190,6 +203,10 @@ export default function App() {
   const persistAiSettings = useCallback((settings) => { storageSet('ai-voice-settings', JSON.stringify(settings)); }, []);
   const persistFavorites = useCallback((ids) => { storageSet('favorite-ids', JSON.stringify(ids)); }, []);
   const persistRecent = useCallback((ids) => { storageSet('recent-ids', JSON.stringify(ids)); }, []);
+  const dismissIosHint = () => {
+    setShowIosHint(false);
+    storageSet('ios-hint-dismissed', 'true');
+  };
 
   const fetchAiVoices = async (apiKey) => {
     if (!apiKey) return;
@@ -503,6 +520,19 @@ export default function App() {
         {aiSettings.enabled && (
           <div className="flex items-center gap-1.5 text-xs font-bold mb-2 px-1" style={{ color: '#1B7A6E' }}>
             <Sparkles size={13} /> Voz clonada activa {aiSpeaking && <Loader2 size={13} className="animate-spin" />}
+          </div>
+        )}
+
+        {/* iOS install hint — iOS has no automatic "Install" prompt */}
+        {showIosHint && (
+          <div className="rounded-2xl p-3 mb-3 flex items-start gap-2" style={{ background: '#FFF3D6', border: '2px solid #F0DBA0' }}>
+            <span className="text-xl leading-none">📲</span>
+            <p className="text-sm flex-1" style={{ color: '#6B4E00' }}>
+              Para instalarla como app: toca <strong>Compartir</strong> (el icono con la flecha hacia arriba) y luego <strong>"Añadir a pantalla de inicio"</strong>.
+            </p>
+            <button onClick={dismissIosHint} aria-label="Cerrar aviso" className="shrink-0">
+              <X size={18} color="#6B4E00" />
+            </button>
           </div>
         )}
 
