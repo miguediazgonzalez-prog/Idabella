@@ -1,8 +1,21 @@
 # Mi Tablero de Voz
 
-Tablero de comunicación (AAC) con iconos, texto libre y texto-a-voz. Incluye
-modo de voz del sistema (offline, gratis) y modo de voz clonada vía
-ElevenLabs (requiere internet y una clave de API propia).
+Tablero de comunicación (AAC) con iconos, texto libre y texto-a-voz.
+Instalable como app (PWA) y funciona sin conexión salvo el modo de voz clonada.
+
+## Funciones
+
+- Iconos organizados por categoría con pestañas, más buscador.
+- Favoritos y recientes para acceso rápido a lo que más se usa.
+- Cada icono habla al tocarlo y se añade a una frase que se puede ampliar.
+- Botón "Repetir" para volver a escuchar lo último dicho.
+- Voz del sistema (offline, gratis) o voz clonada vía ElevenLabs (requiere
+  internet y clave de API propia).
+- Descarga del audio generado con la voz clonada.
+- Copia de seguridad: exportar/importar iconos personalizados y ajustes
+  como archivo `.json`.
+- Instalable en Android/iOS/escritorio como app independiente (PWA), con
+  icono propio y funcionamiento offline del tablero.
 
 ## Desarrollo local
 
@@ -11,8 +24,6 @@ npm install
 npm run dev
 ```
 
-Abre la URL que muestre la terminal (normalmente `http://localhost:5173`).
-
 ## Compilar para producción
 
 ```bash
@@ -20,15 +31,14 @@ npm install
 npm run build
 ```
 
-Esto genera la carpeta `dist/` con los archivos estáticos listos para
-publicar.
+Genera `dist/` con los archivos estáticos, el manifest de la PWA y el
+service worker.
 
 ## Publicar en Render.com
 
 **Opción A — Blueprint automático (usa `render.yaml`):**
 1. Sube este proyecto a un repositorio de GitHub/GitLab.
-2. En Render: **New → Blueprint**, conecta el repositorio. Render detecta
-   `render.yaml` y configura todo solo.
+2. En Render: **New → Blueprint**, conecta el repositorio.
 
 **Opción B — Manual:**
 1. Sube el proyecto a un repositorio Git.
@@ -40,13 +50,21 @@ publicar.
 
 No hace falta configurar variables de entorno: la clave de ElevenLabs se
 introduce dentro de la propia app (en Ajustes) y se guarda solo en el
-dispositivo de quien la usa, no en el servidor.
+dispositivo de quien la usa.
+
+## Instalar la app en el móvil/tablet
+
+Una vez publicada en Render, abre la URL en Chrome (Android) o Safari
+(iOS) y usa "Instalar app" / "Añadir a pantalla de inicio". Quedará como
+una app independiente, con su propio icono, y el tablero funcionará sin
+conexión (la voz del sistema funciona offline; la voz clonada de
+ElevenLabs siempre necesita internet).
 
 ## Notas
 
-- La app usa la Web Speech API del navegador para la voz del sistema —
-  funciona sin conexión en Chrome para Android.
+- La app usa la Web Speech API del navegador para la voz del sistema.
 - El modo "voz clonada" llama directamente a la API de ElevenLabs desde el
-  navegador del usuario; necesita internet y una cuenta con crédito.
-- Instálala como acceso directo desde Chrome en Android: menú (⋮) → "Añadir
-  a pantalla de inicio".
+  navegador; no se cachea, siempre necesita conexión.
+- La copia de seguridad puede incluir tu clave de ElevenLabs si la voz
+  clonada está configurada — guarda el archivo exportado en un sitio
+  privado.
