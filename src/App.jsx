@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings, X, Plus, Volume2, Trash2, Type, ChevronDown, ChevronUp, Loader2, Sparkles, Mic } from 'lucide-react';
+import { Settings, X, Plus, Volume2, Trash2, Type, ChevronDown, ChevronUp, Loader2, Sparkles, Mic, Download } from 'lucide-react';
 
 const CATEGORIES = {
   social:    { label: 'Social',     bg: '#F6C9DE', text: '#5B2140' },
@@ -8,6 +8,8 @@ const CATEGORIES = {
   describir: { label: 'Describir',  bg: '#82D6F0', text: '#0A3F52' },
   cosas:     { label: 'Cosas',      bg: '#F5B579', text: '#5C2E00' },
   preguntar: { label: 'Preguntar',  bg: '#D3A3EC', text: '#3C1259' },
+  frases:    { label: 'Frases',     bg: '#9FDCCF', text: '#0F4A42' },
+  carino:    { label: 'Cariño',     bg: '#FFB3A6', text: '#6B1F12' },
 };
 
 const DEFAULT_BOARD = [
@@ -41,6 +43,36 @@ const DEFAULT_BOARD = [
   { id: 'd28', label: 'Dónde',     emoji: '📍', category: 'preguntar' },
   { id: 'd29', label: 'Cuándo',    emoji: '🕐', category: 'preguntar' },
   { id: 'd30', label: 'Por qué',   emoji: '🤔', category: 'preguntar' },
+  { id: 'd31', label: 'Tengo hambre',        emoji: '🍔', category: 'frases' },
+  { id: 'd32', label: 'Tengo sed',           emoji: '🥤', category: 'frases' },
+  { id: 'd33', label: 'Tengo frío',          emoji: '🥶', category: 'frases' },
+  { id: 'd34', label: 'Tengo calor',         emoji: '🥵', category: 'frases' },
+  { id: 'd35', label: 'Me duele',            emoji: '🤕', category: 'frases' },
+  { id: 'd36', label: 'Estoy cansado',       emoji: '😪', category: 'frases' },
+  { id: 'd37', label: 'No me siento bien',   emoji: '🤢', category: 'frases' },
+  { id: 'd38', label: 'Quiero ir al baño',   emoji: '🚻', category: 'frases' },
+  { id: 'd39', label: 'Necesito descansar',  emoji: '🛌', category: 'frases' },
+  { id: 'd40', label: 'Espera un momento',   emoji: '⏳', category: 'frases' },
+  { id: 'd41', label: 'Ayúdame por favor',   emoji: '🆘', category: 'frases' },
+  { id: 'd42', label: 'No entiendo',         emoji: '😕', category: 'frases' },
+  { id: 'd43', label: 'Buenos días',         emoji: '☀️', category: 'frases' },
+  { id: 'd44', label: 'Buenas noches',       emoji: '🌙', category: 'frases' },
+  { id: 'd45', label: 'Hasta luego',         emoji: '👋', category: 'frases' },
+  { id: 'd46', label: 'Lo siento',           emoji: '😔', category: 'frases' },
+  { id: 'd47', label: 'Te quiero',           emoji: '❤️', category: 'frases' },
+  { id: 'd48', label: 'Estoy de acuerdo',    emoji: '✅', category: 'frases' },
+  { id: 'd49', label: 'No estoy de acuerdo', emoji: '🙅', category: 'frases' },
+  { id: 'd50', label: 'Repite, por favor',   emoji: '🔁', category: 'frases' },
+  { id: 'd51', label: 'Buenos días con alegría!',              emoji: '🥰', category: 'carino' },
+  { id: 'd52', label: 'Me estoy meando de risa con esto',      emoji: '🤣', category: 'carino' },
+  { id: 'd53', label: 'Os quiero mucho',                       emoji: '❤️', category: 'carino' },
+  { id: 'd54', label: 'Disfruta cariño',                       emoji: '😘', category: 'carino' },
+  { id: 'd55', label: 'Pero qué bonito, me encanta',           emoji: '😍', category: 'carino' },
+  { id: 'd56', label: 'Felicidades!!!',                        emoji: '🥳', category: 'carino' },
+  { id: 'd57', label: 'Estoy reventada',                       emoji: '🥴', category: 'carino' },
+  { id: 'd58', label: 'Joe, se me ha ido la olla',             emoji: '😅', category: 'carino' },
+  { id: 'd59', label: 'Por eso me voy cantando bajito',        emoji: '💃', category: 'carino' },
+  { id: 'd60', label: 'Buenas noches amores, mañana más y mejor', emoji: '🫶', category: 'carino' },
 ];
 
 const DEFAULT_VOICE_SETTINGS = { voiceURI: '', rate: 1, pitch: 1, volume: 1 };
@@ -56,6 +88,13 @@ function fileToBase64(file) {
   });
 }
 
+function stripEmojiForSpeech(text) {
+  return text
+    .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F\u200D]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export default function App() {
   const [customItems, setCustomItems] = useState([]);
   const [sentence, setSentence] = useState([]);
@@ -67,6 +106,7 @@ export default function App() {
   const [aiVoicesLoading, setAiVoicesLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [aiSpeaking, setAiSpeaking] = useState(false);
+  const [lastAudio, setLastAudio] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showFreeText, setShowFreeText] = useState(false);
@@ -79,25 +119,28 @@ export default function App() {
   const [newCategory, setNewCategory] = useState('cosas');
   const [editMode, setEditMode] = useState(false);
   const audioRef = useRef(null);
+  const lastAudioUrlRef = useRef(null);
   const strapRef = useRef(null);
 
   useEffect(() => {
-    try {
-      const items = localStorage.getItem('custom-items');
-      if (items) setCustomItems(JSON.parse(items));
-    } catch (e) {}
-    try {
-      const vs = localStorage.getItem('voice-settings');
-      if (vs) setVoiceSettings(JSON.parse(vs));
-    } catch (e) {}
-    try {
-      const ai = localStorage.getItem('ai-voice-settings');
-      if (ai) {
-        const parsed = JSON.parse(ai);
-        setAiSettings(parsed);
-        if (parsed.apiKey) fetchAiVoices(parsed.apiKey);
-      }
-    } catch (e) {}
+    (async () => {
+      try {
+        const items = await window.storage.get('custom-items', false);
+        if (items) setCustomItems(JSON.parse(items.value));
+      } catch (e) {}
+      try {
+        const vs = await window.storage.get('voice-settings', false);
+        if (vs) setVoiceSettings(JSON.parse(vs.value));
+      } catch (e) {}
+      try {
+        const ai = await window.storage.get('ai-voice-settings', false);
+        if (ai) {
+          const parsed = JSON.parse(ai.value);
+          setAiSettings(parsed);
+          if (parsed.apiKey) fetchAiVoices(parsed.apiKey);
+        }
+      } catch (e) {}
+    })();
     // eslint-disable-next-line
   }, []);
 
@@ -110,14 +153,14 @@ export default function App() {
     window.speechSynthesis.onvoiceschanged = loadVoices;
   }, []);
 
-  const persistCustomItems = useCallback((items) => {
-    try { localStorage.setItem('custom-items', JSON.stringify(items)); } catch (e) {}
+  const persistCustomItems = useCallback(async (items) => {
+    try { await window.storage.set('custom-items', JSON.stringify(items), false); } catch (e) {}
   }, []);
-  const persistVoiceSettings = useCallback((settings) => {
-    try { localStorage.setItem('voice-settings', JSON.stringify(settings)); } catch (e) {}
+  const persistVoiceSettings = useCallback(async (settings) => {
+    try { await window.storage.set('voice-settings', JSON.stringify(settings), false); } catch (e) {}
   }, []);
-  const persistAiSettings = useCallback((settings) => {
-    try { localStorage.setItem('ai-voice-settings', JSON.stringify(settings)); } catch (e) {}
+  const persistAiSettings = useCallback(async (settings) => {
+    try { await window.storage.set('ai-voice-settings', JSON.stringify(settings), false); } catch (e) {}
   }, []);
 
   const fetchAiVoices = async (apiKey) => {
@@ -212,6 +255,9 @@ export default function App() {
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
+      if (lastAudioUrlRef.current) URL.revokeObjectURL(lastAudioUrlRef.current);
+      lastAudioUrlRef.current = url;
+      setLastAudio({ url, text });
       if (audioRef.current) {
         audioRef.current.src = url;
         await audioRef.current.play();
@@ -229,10 +275,12 @@ export default function App() {
 
   const speak = (text) => {
     if (!text || !text.trim()) return;
+    const cleaned = stripEmojiForSpeech(text);
+    if (!cleaned) return;
     if (aiSettings.enabled && aiSettings.apiKey && aiSettings.voiceId) {
-      speakAi(text);
+      speakAi(cleaned);
     } else {
-      speakSystem(text);
+      speakSystem(cleaned);
     }
   };
 
@@ -240,6 +288,25 @@ export default function App() {
     setSentence(prev => [...prev, { ...item, uid: `${item.id}-${Date.now()}-${Math.random()}` }]);
   };
   const removeFromSentence = (uid) => setSentence(prev => prev.filter(s => s.uid !== uid));
+  const handleTapItem = (item) => {
+    addToSentence(item);
+    speak(item.label);
+  };
+  const downloadLastAudio = () => {
+    if (!lastAudio) return;
+    const safe = lastAudio.text
+      .slice(0, 40)
+      .toLowerCase()
+      .replace(/[^a-z0-9áéíóúñ ]/gi, '')
+      .trim()
+      .replace(/\s+/g, '-') || 'audio';
+    const a = document.createElement('a');
+    a.href = lastAudio.url;
+    a.download = `${safe}.mp3`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
   const speakSentence = () => speak(sentence.map(s => s.label).join(' '));
   const clearSentence = () => setSentence([]);
   const speakFreeText = () => speak(freeText);
@@ -356,6 +423,23 @@ export default function App() {
           </div>
         </div>
 
+        {/* Last generated audio (only available in AI voice mode) */}
+        {lastAudio && (
+          <div className="rounded-2xl p-3 mb-3 flex items-center justify-between gap-2" style={{ background: 'white', border: '2px solid #D8CFC0' }}>
+            <div className="flex items-center gap-2 min-w-0">
+              <Sparkles size={16} color="#1B7A6E" className="shrink-0" />
+              <span className="text-sm truncate" style={{ color: '#6B6255' }}>{lastAudio.text}</span>
+            </div>
+            <button
+              onClick={downloadLastAudio}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-sm shrink-0"
+              style={{ background: '#1B7A6E', color: 'white' }}
+            >
+              <Download size={16} /> Descargar
+            </button>
+          </div>
+        )}
+
         {/* Free text */}
         <div className="rounded-2xl mb-4 overflow-hidden" style={{ background: 'white', border: '2px solid #D8CFC0' }}>
           <button
@@ -393,8 +477,9 @@ export default function App() {
           {allItems.map(item => (
             <div key={item.id} className="relative">
               <button
-                onClick={() => addToSentence(item)}
-                className="w-full flex flex-col items-center justify-center gap-1 py-3 rounded-2xl font-bold shadow-sm active:scale-95 transition-transform"
+                onClick={() => handleTapItem(item)}
+                disabled={aiSpeaking}
+                className="w-full flex flex-col items-center justify-center gap-1 py-3 rounded-2xl font-bold shadow-sm active:scale-95 transition-transform disabled:opacity-60"
                 style={{ background: CATEGORIES[item.category].bg, color: CATEGORIES[item.category].text, minHeight: '84px' }}
               >
                 <span className="text-3xl">{item.emoji}</span>
