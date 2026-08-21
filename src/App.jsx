@@ -210,11 +210,12 @@ export default function App() {
     setShowFreeText(true);
     setReceivedShared(true);
     window.history.replaceState({}, '', window.location.pathname);
-    // Try to speak it right away. Some browsers (especially iOS Safari)
-    // block audio without a direct tap, in which case the visible
-    // "Hablar" button in the free-text box works as the fallback.
-    const t = setTimeout(() => { speak(shared); }, 500);
-    return () => clearTimeout(t);
+    // Speak it right away, in the same tick as the page load — staying as
+    // close as possible to the tap that opened the link is what lets most
+    // browsers treat this as still tied to that user gesture and allow the
+    // audio. Some browsers (especially iOS Safari) block it regardless, in
+    // which case the visible "Hablar" button below acts as the fallback.
+    speak(shared);
     // eslint-disable-next-line
   }, []);
 
