@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Settings, X, Plus, Volume2, Trash2, Type, ChevronDown, ChevronUp,
-  Loader2, Sparkles, Mic, Download, Upload, Search, Star, RotateCcw,
+  Loader2, Sparkles, Mic, Download, Upload, Search, Star, RotateCcw, Share2,
 } from 'lucide-react';
 
 const CATEGORIES = {
@@ -82,6 +82,7 @@ const DEFAULT_VOICE_SETTINGS = { voiceURI: '', rate: 1, pitch: 1, volume: 1 };
 const DEFAULT_AI_SETTINGS = { enabled: false, apiKey: '', voiceId: '' };
 const EMOJI_CHOICES = ['⭐','❤️','🎵','🎮','📺','🐶','🐱','🚗','⚽','🎨','📖','☀️','🌙','🍕','🛏️','📱','🔊','😀','😢','😡','🥶','🥵','🤒','👋','👍','👎'];
 const RECENT_LIMIT = 8;
+const APP_URL = 'https://emojivoz.onrender.com/';
 
 // Works both inside the Claude artifact preview (window.storage) and in a
 // real deployed build (localStorage) — same file, no changes needed.
@@ -149,6 +150,8 @@ export default function App() {
   const [newCategory, setNewCategory] = useState('cosas');
   const [editMode, setEditMode] = useState(false);
   const [backupMessage, setBackupMessage] = useState('');
+  const [shareMessage, setShareMessage] = useState('');
+  const [receivedShared, setReceivedShared] = useState(false);
   const [showIosHint, setShowIosHint] = useState(false);
   const audioRef = useRef(null);
   const lastAudioUrlRef = useRef(null);
@@ -196,6 +199,23 @@ export default function App() {
     }
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
+  }, []);
+
+  // Received via a shared link, e.g. https://emojivoz.onrender.com/?texto=...
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shared = params.get('texto');
+    if (!shared) return;
+    setFreeText(shared);
+    setShowFreeText(true);
+    setReceivedShared(true);
+    window.history.replaceState({}, '', window.location.pathname);
+    // Try to speak it right away. Some browsers (especially iOS Safari)
+    // block audio without a direct tap, in which case the visible
+    // "Hablar" button in the free-text box works as the fallback.
+    const t = setTimeout(() => { speak(shared); }, 500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
   }, []);
 
   const persistCustomItems = useCallback((items) => { storageSet('custom-items', JSON.stringify(items)); }, []);
@@ -386,6 +406,49 @@ export default function App() {
   const speakSentence = () => speak(sentence.map(s => s.label).join(' '));
   const clearSentence = () => setSentence([]);
   const speakFreeText = () => speak(freeText);
+
+  const shareText = async (rawText) => {
+    const text = rawText.trim();
+    if (!text) return;
+    setShareMessage('');
+    const cleaned = stripEmojiForSpeech(text);
+    const shareData = { title: 'Mi Tablero de Voz', text };
+    let attachedAudio = false;
+
+    // If we already generated this exact phrase with the cloned voice,
+    // attach that real audio file too (system voice audio can't be captured).
+    if (aiSettings.enabled && lastAudio && lastAudio.text === cleaned) {
+      try {
+        const resp = await fetch(lastAudio.url);
+        const blob = await resp.blob();
+        const file = new File([blob], 'frase.mp3', { type: 'audio/mpeg' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          shareData.files = [file];
+          attachedAudio = true;
+        }
+      } catch (e) { /* fall back to link share below */ }
+    }
+
+    // No real audio file available (system voice, or AI file sharing
+    // unsupported) — share a link that speaks the phrase when opened instead.
+    const shareUrl = `${APP_URL}?texto=${encodeURIComponent(text)}`;
+    if (!attachedAudio) shareData.url = shareUrl;
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else if (navigator.clipboard) {
+        const fallbackText = attachedAudio ? text : `${text}\n${shareUrl}`;
+        await navigator.clipboard.writeText(fallbackText);
+        setShareMessage('Este navegador no permite compartir directamente — copiado al portapapeles.');
+      } else {
+        setShareMessage('Este navegador no admite compartir ni copiar automáticamente.');
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') setShareMessage('No se pudo compartir la frase.');
+    }
+  };
+  const shareSentence = () => shareText(sentence.map(s => s.label).join(' '));
 
   const addCustomItem = () => {
     if (!newLabel.trim()) return;
@@ -607,25 +670,36 @@ export default function App() {
             >
               {speaking ? <Loader2 size={22} className="animate-spin" /> : <Volume2 size={22} />} Hablar
             </button>
+          </div>
+          <div className="flex gap-2 mt-2">
             <button
               onClick={repeatLast}
               disabled={!lastSpokenText || speaking}
-              className="px-4 py-3 rounded-xl font-bold disabled:opacity-40"
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-sm disabled:opacity-40"
               style={{ background: '#F3EEE4', color: '#1B7A6E' }}
-              aria-label="Repetir última frase"
             >
-              <RotateCcw size={20} />
+              <RotateCcw size={17} /> Repetir
+            </button>
+            <button
+              onClick={shareSentence}
+              disabled={sentence.length === 0}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-sm disabled:opacity-40"
+              style={{ background: '#F3EEE4', color: '#1B7A6E' }}
+            >
+              <Share2 size={17} /> Compartir
             </button>
             <button
               onClick={clearSentence}
               disabled={sentence.length === 0}
-              className="px-4 py-3 rounded-xl font-bold disabled:opacity-40"
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-sm disabled:opacity-40"
               style={{ background: '#F3EEE4', color: '#6B6255' }}
-              aria-label="Borrar frase"
             >
-              <Trash2 size={20} />
+              <Trash2 size={17} /> Borrar
             </button>
           </div>
+          {shareMessage && (
+            <p className="text-xs mt-2 px-1" style={{ color: '#6B6255' }}>{shareMessage}</p>
+          )}
         </div>
 
         {/* Last generated audio (only available in AI voice mode) */}
@@ -656,7 +730,13 @@ export default function App() {
             {showFreeText ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
           </button>
           {showFreeText && (
-            <div className="px-3 pb-3 flex gap-2">
+            <div className="px-3 pb-3">
+              {receivedShared && (
+                <p className="text-xs mb-2 px-1" style={{ color: '#1B7A6E' }}>
+                  📩 Frase recibida por enlace — toca 🔊 si no se escuchó sola.
+                </p>
+              )}
+              <div className="flex gap-2">
               <input
                 value={freeText}
                 onChange={e => setFreeText(e.target.value)}
@@ -673,6 +753,16 @@ export default function App() {
               >
                 {speaking ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
               </button>
+              <button
+                onClick={() => shareText(freeText)}
+                disabled={!freeText.trim()}
+                className="px-4 rounded-xl font-bold disabled:opacity-40"
+                style={{ background: '#F3EEE4', color: '#1B7A6E' }}
+                aria-label="Compartir texto"
+              >
+                <Share2 size={20} />
+              </button>
+              </div>
             </div>
           )}
         </div>
